@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Anki Pipeline | Academic Tool</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background-color: #121212; color: #e0e0e0; max-width: 900px; margin: 50px auto; padding: 0 20px; }
+        h1 { color: #bb86fc; border-bottom: 1px solid #333; padding-bottom: 10px; }
+        .input-group { margin-bottom: 20px; }
+        textarea { width: 100%; height: 200px; background: #1e1e1e; color: #fff; border: 1px solid #333; border-radius: 4px; padding: 15px; box-sizing: border-box; font-family: 'Courier New', monospace; margin-bottom: 10px; }
+        input[type="file"] { background: #1e1e1e; padding: 10px; border: 1px solid #333; border-radius: 4px; color: #fff; width: 100%; box-sizing: border-box; }
+        button { background: #03dac6; color: #000; border: none; padding: 12px 30px; border-radius: 4px; font-weight: bold; cursor: pointer; margin-top: 10px; width: 100%; }
+        button:disabled { background: #555; cursor: not-allowed; }
+        #status { margin-top: 20px; font-size: 0.9em; color: #03dac6; text-align: center; }
+        .divider { text-align: center; margin: 20px 0; color: #777; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+    <h1>Anki Pipeline Beta</h1>
+    <p>Upload a lecture slide (PDF) or paste raw text to generate a structured MCQ dataset.</p>
+    
+    <div class="input-group">
+        <label>Option 1: Upload PDF Slides</label>
+        <input type="file" id="pdfInput" accept=".pdf">
+    </div>
+
+    <div class="divider">OR</div>
+
+    <div class="input-group">
+        <label>Option 2: Paste Raw Text</label>
+        <textarea id="noteInput" placeholder="Paste source text here..."></textarea>
+    </div>
+
+    <button id="generateBtn" onclick="process()">Run Multi-Stage Extraction Pipeline</button>
+    <div id="status"></div>
+
+    <script>
+        async function process() {
+            const text = document.getElementById('noteInput').value;
+            const fileInput = document.getElementById('pdfInput');
+            const btn = document.getElementById('generateBtn');
+            const status = document.getElementById('status');
+            
+            if (!text.trim() && fileInput.files.length === 0) {
+                alert("Please provide either a PDF or text.");
+                return;
+            }
+
+            btn.disabled = true;
+            status.innerText = "[Stage 1] Parsing data and extracting key concepts...";
+
+            const formData = new FormData();
+            if (fileInput.files.length > 0) {
+                formData.append("file", fileInput.files[0]);
+            } else {
+                formData.append("text", text);
+            }
+
+            try {
+                const response = await fetch('/api/generate', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) throw new Error("Server rejected the request.");
+                
+                status.innerText = "[Stage 2] Generating distractor arrays...";
+                const data = await response.json();
+                
+                let csv = "\uFEFFQuestion,Correct Answer,Distractor 1,Distractor 2,Distractor 3,Explanation\n";
+                data.cards.forEach(c => {
+                    const row = [c.question, c.correct_answer, c.distractor_1, c.distractor_2, c.distractor_3, c.explanation]
+                        .map(v => `"${(v || "").replace(/"/g, '""')}"`).join(",");
+                    csv += row + "\n";
+                });
+
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `anki_export_${Date.now()}.csv`;
+                a.click();
+                status.innerText = "Pipeline complete. CSV exported.";
+            } catch (e) {
+                status.innerText = "Error encountered during generation. Check server logs.";
+            } finally {
+                btn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
